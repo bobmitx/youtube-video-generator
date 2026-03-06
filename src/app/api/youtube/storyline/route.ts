@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { db } from '@/lib/db';
 
 function getDemoStoryline(topic: string, format: string, duration: string): string {
   return `# YouTube Video Script: ${topic}
@@ -7,58 +8,46 @@ function getDemoStoryline(topic: string, format: string, duration: string): stri
 ## 1. Video Title
 **"${topic}: Everything You Need to Know in ${duration}"**
 
-*SEO-optimized alternative titles:*
-- The Complete Guide to ${topic}
-- ${topic} Explained: A Beginner's Guide
-- Why ${topic} Matters in 2025
-
 ---
 
 ## 2. Hook (0:00-0:30)
-
 🎬 **VISUAL:** Dynamic montage with fast cuts, dramatic music building up
 
-**SCRIPT:**
-"What if I told you that ${topic} is about to change everything you thought you knew? In the next few minutes, I'm going to show you exactly why experts are calling this the biggest shift we've seen in decades. Stay tuned."
-
-**TONE:** Energetic, intriguing, builds curiosity
+**SCRIPT:** "What if I told you that ${topic} is about to change everything you thought you knew? Stay tuned."
 
 ---
 
 ## 3. Introduction (0:30-1:00)
+🎬 **VISUAL:** Host on camera, clean background
 
-🎬 **VISUAL:** Host on camera, clean background with subtle graphics
-
-**SCRIPT:**
-"Hey everyone, welcome back to the channel! Today we're diving deep into ${topic}. Whether you're a complete beginner or looking to expand your knowledge, this ${format}-style video will give you a comprehensive overview. By the end of this video, you'll understand the fundamentals, real-world applications, and what the future holds. Let's get into it!"
+**SCRIPT:** "Hey everyone! Today we're diving deep into ${topic}. This ${format}-style video will give you a comprehensive overview. Let's get into it!"
 
 ---
 
 ## 4. Main Content Sections
 
 ### Section 1: What is ${topic}? (1:00-3:00)
-**SCRIPT:** "Let's start with the basics. ${topic} refers to... [core concept explanation]. Think of it like... [relatable analogy]. Here's why this matters today."
+**SCRIPT:** "Let's start with the basics. ${topic} refers to... Think of it like... Here's why this matters today."
 
 ### Section 2: How ${topic} Works (3:00-5:00)
-**SCRIPT:** "Now let's look under the hood. ${topic} works through... [simplified technical explanation]. Here's a practical example..."
+**SCRIPT:** "Now let's look under the hood. ${topic} works through... Here's a practical example..."
 
 ### Section 3: Real-World Applications (5:00-7:00)
-**SCRIPT:** "So where is ${topic} actually being used? Let me show you some incredible examples..."
+**SCRIPT:** "Where is ${topic} actually being used? Let me show you some incredible examples..."
 
 ### Section 4: The Future of ${topic} (7:00-8:30)
-**SCRIPT:** "What does the future hold? Experts predict... [trends and predictions]."
+**SCRIPT:** "What does the future hold? Experts predict..."
 
 ---
 
 ## 5. Thumbnail Concept
-Eye-catching split-screen design with bold text "${topic}: EXPLAINED", bright contrasting colors (orange/blue), and a surprised/excited expression. Include a "NEW" badge in corner.
+Eye-catching split-screen design with bold text "${topic}: EXPLAINED", bright contrasting colors (orange/blue).
 
 ---
 
 ## 6. Tags/Keywords
-**Primary:** ${topic}, ${topic} explained, ${topic} tutorial, ${topic} for beginners
-**Secondary:** ${topic} 2025, ${topic} guide, learn ${topic}
-**Hashtags:** #${topic.replace(/\s+/g, '')} #Tutorial #Explained #Education
+**Primary:** ${topic}, ${topic} explained, ${topic} tutorial
+**Hashtags:** #${topic.replace(/\s+/g, '')} #Tutorial #Education
 
 ---
 *Script designed for ${format} format, target duration: ${duration}.*
@@ -67,8 +56,11 @@ Eye-catching split-screen design with bold text "${topic}: EXPLAINED", bright co
 
 export async function POST(request: NextRequest) {
   try {
-    const { topic, format, duration, researchData } = await request.json();
+    const { topic, format, duration, researchData, workflowId } = await request.json();
     if (!topic) return NextResponse.json({ success: false, error: 'Topic is required' }, { status: 400 });
+
+    let storyline: string;
+    let isDemo = false;
 
     try {
       const client = new Anthropic();
@@ -96,32 +88,37 @@ ${researchContext}
 Please provide:
 1. **Video Title** - Catchy, SEO-optimized title
 2. **Hook (0:00-0:30)** - Attention-grabbing opening
-3. **Introduction (0:30-1:00)** - Brief overview of what viewers will learn
+3. **Introduction (0:30-1:00)** - Brief overview
 4. **Main Content Sections** - 3-5 key sections with timestamps
-5. **Visual Cues** - Suggestions for B-roll, graphics, or demonstrations
+5. **Visual Cues** - Suggestions for B-roll, graphics
 6. **Call to Action** - Engagement prompts
 7. **Thumbnail Concept** - Description for an eye-catching thumbnail
-8. **Tags/Keywords** - Relevant hashtags and keywords for YouTube SEO
+8. **Tags/Keywords** - Relevant hashtags and keywords
 
 Format the response in clear Markdown with proper headings.`
         }]
       });
 
-      const storyline = message.content[0].type === 'text' ? message.content[0].text : null;
-
-      return NextResponse.json({ success: true, storyline, topic, format, duration });
-
+      storyline = message.content[0].type === 'text' ? message.content[0].text : getDemoStoryline(topic, format || 'documentary', duration || '5-10 minutes');
     } catch (apiError: unknown) {
       const msg = apiError instanceof Error ? apiError.message : String(apiError);
       if (msg.includes('429') || msg.includes('rate limit') || msg.includes('overloaded')) {
-        return NextResponse.json({
-          success: true,
-          storyline: getDemoStoryline(topic, format || 'documentary', duration || '5-10 minutes'),
-          topic, format, duration, isDemo: true
-        });
+        storyline = getDemoStoryline(topic, format || 'documentary', duration || '5-10 minutes');
+        isDemo = true;
+      } else {
+        throw apiError;
       }
-      throw apiError;
     }
+
+    // Persist to workflow
+    if (workflowId) {
+      await db.workflow.update({
+        where: { id: workflowId },
+        data: { storyline, updatedAt: new Date() },
+      }).catch(() => {});
+    }
+
+    return NextResponse.json({ success: true, storyline, topic, format, duration, isDemo });
   } catch (error) {
     console.error('Storyline generation error:', error);
     return NextResponse.json({ success: false, error: 'Failed to generate storyline' }, { status: 500 });

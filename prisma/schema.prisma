@@ -9,24 +9,32 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("NETLIFY_DATABASE_URL")
+  directUrl = env("NETLIFY_DATABASE_URL_UNPOOLED")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Workflow {
+  id           String    @id @default(cuid())
+  topic        String
+  format       String    @default("documentary")
+  duration     String    @default("5-10 minutes")
+  status       String    @default("in_progress")
+  researchData Json?
+  storyline    String?
+  thumbnailKey String?
+  thumbnailUrl String?
+  videoUrl     String?
+  publishedUrl String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
-model Post {
+model ResearchCache {
   id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
+  topicHash String   @unique
+  topic     String
+  data      Json
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  expiresAt DateTime
 }

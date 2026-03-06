@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
@@ -15,9 +14,7 @@ import {
   FileText, 
   Image as ImageIcon, 
   Video, 
-  ArrowRight, 
   CheckCircle2, 
-  Circle, 
   Loader2,
   Sparkles,
   Youtube,
@@ -25,14 +22,11 @@ import {
   RefreshCw,
   Copy,
   Download,
-  Info,
-  Zap,
-  Shield,
-  Users,
-  Clock,
   Upload,
   Link2,
-  Unlink
+  Unlink,
+  History,
+  Trash2,
 } from 'lucide-react';
 
 interface ResearchResult {
@@ -50,7 +44,21 @@ interface YouTubeChannel {
   subscriberCount: string;
 }
 
+interface SavedWorkflow {
+  id: string;
+  topic: string;
+  format: string;
+  duration: string;
+  status: string;
+  thumbnailUrl?: string;
+  videoUrl?: string;
+  publishedUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface WorkflowState {
+  workflowId: string | null;
   currentStep: number;
   topic: string;
   format: string;
@@ -99,7 +107,10 @@ const steps = [
 ];
 
 export default function YouTubeWorkflowApp() {
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [state, setState] = useState<WorkflowState>({
+    workflowId: null,
     currentStep: 0,
     topic: '',
     format: 'documentary',
@@ -129,6 +140,50 @@ export default function YouTubeWorkflowApp() {
     error: null,
   });
 
+  // Load saved workflows on mount
+  useEffect(() => {
+    fetch('/api/youtube/workflow')
+      .then(r => r.json())
+      .then(d => { if (d.success) setSavedWorkflows(d.workflows); })
+      .catch(() => {});
+  }, []);
+
+  // Create a new workflow in DB and return its id
+  const createWorkflow = async (topic: string, format: string, duration: string): Promise<string | null> => {
+    try {
+      const r = await fetch('/api/youtube/workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, format, duration }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setSavedWorkflows(prev => [d.workflow, ...prev]);
+        return d.workflow.id;
+      }
+    } catch { /* non-fatal */ }
+    return null;
+  };
+
+  const refreshWorkflows = async () => {
+    try {
+      const r = await fetch('/api/youtube/workflow');
+      const d = await r.json();
+      if (d.success) setSavedWorkflows(d.workflows);
+    } catch { /* non-fatal */ }
+  };
+
+  const deleteWorkflow = async (id: string) => {
+    try {
+      await fetch('/api/youtube/workflow', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      setSavedWorkflows(prev => prev.filter(w => w.id !== id));
+    } catch { /* non-fatal */ }
+  };
+
   const updateState = useCallback((updates: Partial<WorkflowState>) => {
     setState(prev => ({ ...prev, ...updates }));
   }, []);
@@ -143,10 +198,13 @@ export default function YouTubeWorkflowApp() {
     });
 
     try {
+      // Create workflow in DB on first step
+      const workflowId = state.workflowId ?? await createWorkflow(state.topic, state.format, state.duration);
+
       const response = await fetch('/api/youtube/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: state.topic }),
+        body: JSON.stringify({ topic: state.topic, workflowId }),
       });
 
       const data = await response.json();
@@ -155,6 +213,7 @@ export default function YouTubeWorkflowApp() {
         updateState({ 
           researchData: data,
           currentStep: 1,
+          workflowId,
           loading: { ...state.loading, research: false }
         });
       } else {
@@ -163,7 +222,7 @@ export default function YouTubeWorkflowApp() {
           loading: { ...state.loading, research: false }
         });
       }
-    } catch (error) {
+    } catch {
       updateState({ 
         error: 'Failed to research topic',
         loading: { ...state.loading, research: false }
@@ -187,6 +246,7 @@ export default function YouTubeWorkflowApp() {
           format: state.format,
           duration: state.duration,
           researchData: state.researchData,
+          workflowId: state.workflowId,
         }),
       });
 
@@ -205,7 +265,7 @@ export default function YouTubeWorkflowApp() {
           loading: { ...state.loading, storyline: false }
         });
       }
-    } catch (error) {
+    } catch {
       updateState({ 
         error: 'Failed to generate storyline',
         loading: { ...state.loading, storyline: false }
@@ -229,6 +289,7 @@ export default function YouTubeWorkflowApp() {
         body: JSON.stringify({
           concept: thumbnailConcept,
           title: state.topic,
+          workflowId: state.workflowId,
         }),
       });
 
@@ -247,7 +308,7 @@ export default function YouTubeWorkflowApp() {
           loading: { ...state.loading, thumbnail: false }
         });
       }
-    } catch (error) {
+    } catch {
       updateState({ 
         error: 'Failed to generate thumbnail',
         loading: { ...state.loading, thumbnail: false }
@@ -271,6 +332,7 @@ export default function YouTubeWorkflowApp() {
         body: JSON.stringify({
           sceneDescription,
           quality: 'speed',
+          workflowId: state.workflowId,
         }),
       });
 
@@ -282,8 +344,6 @@ export default function YouTubeWorkflowApp() {
           videoStatus: data.status,
           videoIsDemo: data.isDemo || false,
         });
-        
-        // Start polling for video status
         pollVideoStatus(data.taskId);
       } else {
         updateState({ 
@@ -291,7 +351,7 @@ export default function YouTubeWorkflowApp() {
           loading: { ...state.loading, video: false }
         });
       }
-    } catch (error) {
+    } catch {
       updateState({ 
         error: 'Failed to create video task',
         loading: { ...state.loading, video: false }
@@ -306,7 +366,10 @@ export default function YouTubeWorkflowApp() {
 
     const poll = async () => {
       try {
-        const response = await fetch(`/api/youtube/video?taskId=${taskId}`);
+        const url = state.workflowId
+          ? `/api/youtube/video?taskId=${taskId}&workflowId=${state.workflowId}`
+          : `/api/youtube/video?taskId=${taskId}`;
+        const response = await fetch(url);
         const data = await response.json();
 
         if (data.success) {
@@ -318,6 +381,7 @@ export default function YouTubeWorkflowApp() {
               currentStep: 4,
               loading: { ...state.loading, video: false }
             });
+            refreshWorkflows();
             return;
           }
 
@@ -339,7 +403,7 @@ export default function YouTubeWorkflowApp() {
             loading: { ...state.loading, video: false }
           });
         }
-      } catch (error) {
+      } catch {
         updateState({ 
           error: 'Failed to check video status',
           loading: { ...state.loading, video: false }
@@ -400,17 +464,12 @@ export default function YouTubeWorkflowApp() {
     try {
       const response = await fetch('/api/youtube/auth');
       const data = await response.json();
-      
       if (data.success && data.authUrl) {
         window.open(data.authUrl, 'youtube-auth', 'width=600,height=800');
       } else {
-        // YouTube not configured - update state to show demo option
-        updateState({ 
-          youtubeConfigured: false,
-          error: null,
-        });
+        updateState({ youtubeConfigured: false, error: null });
       }
-    } catch (error) {
+    } catch {
       updateState({ error: 'Failed to connect to YouTube' });
     }
   };
@@ -432,39 +491,31 @@ export default function YouTubeWorkflowApp() {
   const disconnectYouTube = async () => {
     try {
       await fetch('/api/youtube/publish', { method: 'DELETE' });
-      updateState({
-        youtubeConnected: false,
-        youtubeChannel: null,
-        youtubePublishResult: null,
-      });
-    } catch (error) {
+      updateState({ youtubeConnected: false, youtubeChannel: null, youtubePublishResult: null });
+    } catch {
       updateState({ error: 'Failed to disconnect from YouTube' });
     }
   };
 
   const publishToYouTube = async () => {
-    if (!state.videoUrl) {
-      updateState({ error: 'No video to publish' });
-      return;
-    }
+    if (!state.videoUrl) { updateState({ error: 'No video to publish' }); return; }
 
-    updateState({
-      loading: { ...state.loading, youtube: true },
-      error: null,
-    });
+    updateState({ loading: { ...state.loading, youtube: true }, error: null });
 
     try {
-      // If in demo mode, simulate publishing
       if (!state.youtubeConfigured && state.youtubeConnected) {
-        // Demo mode - simulate successful publish
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const publishedUrl = `https://youtube.com/watch?v=demo_${Date.now()}`;
+        if (state.workflowId) {
+          await fetch('/api/youtube/workflow', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: state.workflowId, publishedUrl, status: 'published' }),
+          }).catch(() => {});
+        }
+        refreshWorkflows();
         updateState({
-          youtubePublishResult: {
-            success: true,
-            videoId: `demo_${Date.now()}`,
-            videoUrl: `https://youtube.com/watch?v=demo_${Date.now()}`,
-            message: 'Demo mode: Video publishing simulated! Configure YouTube API for real publishing.',
-          },
+          youtubePublishResult: { success: true, videoId: `demo_${Date.now()}`, videoUrl: publishedUrl, message: 'Demo mode: Video publishing simulated!' },
           currentStep: 5,
           loading: { ...state.loading, youtube: false },
         });
@@ -478,84 +529,56 @@ export default function YouTubeWorkflowApp() {
       const response = await fetch('/api/youtube/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          description,
-          tags,
-          videoUrl: state.videoUrl,
-          thumbnailUrl: state.thumbnailUrl,
-          privacyStatus: 'private',
-        }),
+        body: JSON.stringify({ title, description, tags, videoUrl: state.videoUrl, thumbnailUrl: state.thumbnailUrl, privacyStatus: 'private' }),
       });
 
       const data = await response.json();
 
       if (data.success) {
+        const publishedUrl = `https://www.youtube.com/watch?v=${data.video?.id}`;
+        if (state.workflowId) {
+          await fetch('/api/youtube/workflow', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: state.workflowId, publishedUrl, status: 'published' }),
+          }).catch(() => {});
+        }
+        refreshWorkflows();
         updateState({
-          youtubePublishResult: {
-            success: true,
-            videoId: data.video?.id,
-            videoUrl: `https://www.youtube.com/watch?v=${data.video?.id}`,
-            message: 'Video published successfully!',
-          },
+          youtubePublishResult: { success: true, videoId: data.video?.id, videoUrl: publishedUrl, message: 'Video published successfully!' },
           currentStep: 5,
           loading: { ...state.loading, youtube: false },
         });
       } else if (data.demo) {
-        // API returned demo mode - simulate success
         updateState({
-          youtubePublishResult: {
-            success: true,
-            videoId: `demo_${Date.now()}`,
-            videoUrl: 'https://youtube.com/demo-video',
-            message: 'Demo mode: Video publishing simulated. Configure YouTube API for real publishing.',
-          },
+          youtubePublishResult: { success: true, videoId: `demo_${Date.now()}`, videoUrl: 'https://youtube.com/demo-video', message: 'Demo mode: Configure YouTube API for real publishing.' },
           currentStep: 5,
           loading: { ...state.loading, youtube: false },
         });
       } else if (data.requiresAuth) {
-        updateState({
-          error: 'Please connect to YouTube first',
-          youtubeConnected: false,
-          loading: { ...state.loading, youtube: false },
-        });
+        updateState({ error: 'Please connect to YouTube first', youtubeConnected: false, loading: { ...state.loading, youtube: false } });
       } else {
-        updateState({
-          error: data.error || 'Failed to publish video',
-          loading: { ...state.loading, youtube: false },
-        });
+        updateState({ error: data.error || 'Failed to publish video', loading: { ...state.loading, youtube: false } });
       }
-    } catch (error) {
-      updateState({
-        error: 'Failed to publish to YouTube',
-        loading: { ...state.loading, youtube: false },
-      });
+    } catch {
+      updateState({ error: 'Failed to publish to YouTube', loading: { ...state.loading, youtube: false } });
     }
   };
 
-  // Check YouTube connection on OAuth callback
   const handleOAuthCallback = useCallback(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const youtubeConnected = urlParams.get('youtube_connected');
     const channelData = urlParams.get('channel');
     const youtubeError = urlParams.get('youtube_error');
 
-    if (youtubeError) {
-      updateState({ error: `YouTube connection failed: ${youtubeError}` });
-    }
+    if (youtubeError) updateState({ error: `YouTube connection failed: ${youtubeError}` });
 
     if (youtubeConnected === 'true' && channelData) {
       try {
         const channel = JSON.parse(channelData);
-        updateState({
-          youtubeConnected: true,
-          youtubeChannel: channel,
-        });
-        // Clean up URL
+        updateState({ youtubeConnected: true, youtubeChannel: channel });
         window.history.replaceState({}, '', window.location.pathname);
-      } catch (e) {
-        console.error('Failed to parse channel data:', e);
-      }
+      } catch { /* ignore */ }
     }
   }, [updateState]);
 
@@ -566,6 +589,7 @@ export default function YouTubeWorkflowApp() {
 
   const resetWorkflow = () => {
     setState({
+      workflowId: null,
       currentStep: 0,
       topic: '',
       format: 'documentary',
@@ -615,14 +639,66 @@ export default function YouTubeWorkflowApp() {
               </p>
             </div>
           </div>
-          <Button variant="outline" onClick={resetWorkflow} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Reset
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => { setShowHistory(h => !h); refreshWorkflows(); }} className="gap-2">
+              <History className="w-4 h-4" />
+              History {savedWorkflows.length > 0 && <Badge variant="secondary" className="ml-1">{savedWorkflows.length}</Badge>}
+            </Button>
+            <Button variant="outline" onClick={resetWorkflow} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Reset
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* History Panel */}
+        {showHistory && (
+          <Card className="mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="w-4 h-4" />
+                Previous Workflows
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {savedWorkflows.length === 0 ? (
+                <p className="text-sm text-gray-500">No saved workflows yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {savedWorkflows.map(w => (
+                    <div key={w.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{w.topic}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">{w.format}</Badge>
+                          <Badge variant={w.status === 'published' ? 'default' : w.status === 'completed' ? 'secondary' : 'outline'} className="text-xs">
+                            {w.status}
+                          </Badge>
+                          <span className="text-xs text-gray-400">{new Date(w.updatedAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-2">
+                        {w.publishedUrl && (
+                          <Button variant="ghost" size="sm" asChild>
+                            <a href={w.publishedUrl} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => deleteWorkflow(w.id)}>
+                          <Trash2 className="w-3 h-3 text-red-400" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Progress Steps */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -1183,214 +1259,6 @@ export default function YouTubeWorkflowApp() {
           </div>
         </div>
 
-        {/* Skills Used Section */}
-        <div className="mt-12">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-            AI Skills Integration
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              {
-                icon: Search,
-                name: 'Web Search',
-                description: 'Research trending topics and gather context',
-                color: 'text-blue-500',
-                bg: 'bg-blue-100 dark:bg-blue-900/20',
-              },
-              {
-                icon: FileText,
-                name: 'LLM',
-                description: 'Generate engaging storylines and scripts',
-                color: 'text-purple-500',
-                bg: 'bg-purple-100 dark:bg-purple-900/20',
-              },
-              {
-                icon: ImageIcon,
-                name: 'Image Generation',
-                description: 'Create eye-catching thumbnails',
-                color: 'text-green-500',
-                bg: 'bg-green-100 dark:bg-green-900/20',
-              },
-              {
-                icon: Video,
-                name: 'Video Generation',
-                description: 'Produce video clips from descriptions',
-                color: 'text-red-500',
-                bg: 'bg-red-100 dark:bg-red-900/20',
-              },
-            ].map((skill) => (
-              <Card key={skill.name} className="hover:shadow-md transition-shadow">
-                <CardContent className="py-4">
-                  <div className={`w-10 h-10 rounded-lg ${skill.bg} flex items-center justify-center mb-3`}>
-                    <skill.icon className={`w-5 h-5 ${skill.color}`} />
-                  </div>
-                  <h3 className="font-medium text-gray-900 dark:text-white">{skill.name}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{skill.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-
-        {/* Production Solutions Section */}
-        <div className="mt-12">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-            <Shield className="w-6 h-6" />
-            Solving Rate Limits for Production
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Solution 1: User API Keys */}
-            <Card className="border-2 border-green-200 dark:border-green-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                  <Users className="w-5 h-5" />
-                  User-Supplied API Keys
-                </CardTitle>
-                <CardDescription>
-                  Recommended: Let users bring their own API keys
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5" />
-                    Each user has their own rate limits
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5" />
-                    No shared quota between users
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5" />
-                    Keys stored locally (never on servers)
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5" />
-                    Best for public applications
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            {/* Solution 2: Request Queue */}
-            <Card className="border-2 border-blue-200 dark:border-blue-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                  <Clock className="w-5 h-5" />
-                  Request Queue & Throttling
-                </CardTitle>
-                <CardDescription>
-                  Control the rate of API requests
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-500 mt-0.5" />
-                    Queue requests and process sequentially
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-500 mt-0.5" />
-                    Implement exponential backoff
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-500 mt-0.5" />
-                    Show wait times to users
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-500 mt-0.5" />
-                    Prevent quota exhaustion
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            {/* Solution 3: Caching */}
-            <Card className="border-2 border-purple-200 dark:border-purple-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
-                  <Zap className="w-5 h-5" />
-                  Smart Caching
-                </CardTitle>
-                <CardDescription>
-                  Reduce duplicate API calls
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-purple-500 mt-0.5" />
-                    Cache responses for similar topics
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-purple-500 mt-0.5" />
-                    Use Redis for distributed caching
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-purple-500 mt-0.5" />
-                    Set appropriate TTL values
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-purple-500 mt-0.5" />
-                    Invalidate on content changes
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            {/* Solution 4: Demo Mode */}
-            <Card className="border-2 border-amber-200 dark:border-amber-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                  <Info className="w-5 h-5" />
-                  Graceful Fallbacks
-                </CardTitle>
-                <CardDescription>
-                  Maintain UX when rate limited
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-amber-500 mt-0.5" />
-                    Show demo content when limited
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-amber-500 mt-0.5" />
-                    Clear indicators for demo mode
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-amber-500 mt-0.5" />
-                    Queue requests for later
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-amber-500 mt-0.5" />
-                    Notify when quota resets
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Implementation Note */}
-          <Card className="mt-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20">
-            <CardContent className="py-4">
-              <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-blue-500 mt-0.5" />
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    Implementation Available
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    This demo includes caching, rate limiting, and demo mode fallbacks. 
-                    For production, consider adding user API key configuration (see <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">src/components/ApiSettingsPanel.tsx</code>).
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
       </main>
 
       {/* Footer */}
