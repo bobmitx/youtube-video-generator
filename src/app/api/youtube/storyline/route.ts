@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import Anthropic from '@anthropic-ai/sdk';
 
-// Demo storyline for when rate limits are hit
 function getDemoStoryline(topic: string, format: string, duration: string): string {
   return `# YouTube Video Script: ${topic}
 
@@ -11,7 +10,7 @@ function getDemoStoryline(topic: string, format: string, duration: string): stri
 *SEO-optimized alternative titles:*
 - The Complete Guide to ${topic}
 - ${topic} Explained: A Beginner's Guide
-- Why ${topic} Matters in 2024
+- Why ${topic} Matters in 2025
 
 ---
 
@@ -33,160 +32,62 @@ function getDemoStoryline(topic: string, format: string, duration: string): stri
 **SCRIPT:**
 "Hey everyone, welcome back to the channel! Today we're diving deep into ${topic}. Whether you're a complete beginner or looking to expand your knowledge, this ${format}-style video will give you a comprehensive overview. By the end of this video, you'll understand the fundamentals, real-world applications, and what the future holds. Let's get into it!"
 
-**ON-SCREEN TEXT:** Subscribe button animation, channel logo
-
 ---
 
 ## 4. Main Content Sections
 
 ### Section 1: What is ${topic}? (1:00-3:00)
-
-🎬 **VISUAL:** Animated explainer graphics, diagrams
-
-**SCRIPT:**
-"Let's start with the basics. ${topic} refers to... [explanation of core concepts]. Think of it like... [relatable analogy]. Here's why this matters: [key points about significance]."
-
-**KEY POINTS TO COVER:**
-- Definition and core concepts
-- Historical context
-- Why it matters today
-
----
+**SCRIPT:** "Let's start with the basics. ${topic} refers to... [core concept explanation]. Think of it like... [relatable analogy]. Here's why this matters today."
 
 ### Section 2: How ${topic} Works (3:00-5:00)
-
-🎬 **VISUAL:** Screen recordings, demonstrations, step-by-step visuals
-
-**SCRIPT:**
-"Now let's look under the hood. ${topic} works through... [technical explanation simplified]. Here's a practical example: [real-world scenario]."
-
-**KEY POINTS TO COVER:**
-- Technical overview (simplified)
-- Key components and processes
-- Practical examples
-
----
+**SCRIPT:** "Now let's look under the hood. ${topic} works through... [simplified technical explanation]. Here's a practical example..."
 
 ### Section 3: Real-World Applications (5:00-7:00)
-
-🎬 **VISUAL:** Case studies, testimonials, industry footage
-
-**SCRIPT:**
-"So where is ${topic} actually being used? Let me show you some incredible examples... [Industry applications]. Companies like... are already using this to... [Specific use cases]."
-
-**KEY POINTS TO COVER:**
-- Industry applications
-- Success stories
-- Impact on daily life
-
----
+**SCRIPT:** "So where is ${topic} actually being used? Let me show you some incredible examples..."
 
 ### Section 4: The Future of ${topic} (7:00-8:30)
-
-🎬 **VISUAL:** Futuristic graphics, trend charts, expert quotes
-
-**SCRIPT:**
-"What does the future hold for ${topic}? Experts predict... [Trends and predictions]. Here's what we can expect in the coming years... [Future developments]."
-
-**KEY POINTS TO COVER:**
-- Emerging trends
-- Expert predictions
-- Potential challenges
+**SCRIPT:** "What does the future hold? Experts predict... [trends and predictions]."
 
 ---
 
-## 5. Visual Cues & B-Roll Suggestions
-
-| Timestamp | Visual Element | Notes |
-|-----------|---------------|-------|
-| 0:00-0:30 | Dynamic montage | High energy, fast cuts |
-| 0:30-1:00 | Host on camera | Clean, professional look |
-| 1:00-3:00 | Animated graphics | Custom illustrations |
-| 3:00-5:00 | Screen recordings | Step-by-step tutorials |
-| 5:00-7:00 | Industry footage | Real-world applications |
-| 7:00-8:30 | Futuristic graphics | Trend visualizations |
+## 5. Thumbnail Concept
+Eye-catching split-screen design with bold text "${topic}: EXPLAINED", bright contrasting colors (orange/blue), and a surprised/excited expression. Include a "NEW" badge in corner.
 
 ---
 
-## 6. Call to Action (8:30-9:00)
-
-🎬 **VISUAL:** Host on camera, end screen graphics
-
-**SCRIPT:**
-"If you found this video helpful, smash that like button and subscribe for more content like this. Drop a comment below telling me your thoughts on ${topic} - I read every single one! And if you want to dive deeper, check out the links in the description. Thanks for watching, and I'll see you in the next video!"
-
-**END SCREEN ELEMENTS:**
-- Subscribe button
-- Related video suggestions
-- Social media links
-- Website/merch links
+## 6. Tags/Keywords
+**Primary:** ${topic}, ${topic} explained, ${topic} tutorial, ${topic} for beginners
+**Secondary:** ${topic} 2025, ${topic} guide, learn ${topic}
+**Hashtags:** #${topic.replace(/\s+/g, '')} #Tutorial #Explained #Education
 
 ---
-
-## 7. Thumbnail Concept
-
-**Description:** Eye-catching split-screen design with:
-- Left side: Dramatic image related to ${topic}
-- Right side: Bold text "The Complete Guide" with red arrow
-- Host's surprised/excited expression
-- Bright, contrasting colors (orange/blue)
-- "NEW" badge in corner
-
-**Text on Thumbnail:** "${topic}: EXPLAINED" in bold, readable font
-
----
-
-## 8. Tags/Keywords
-
-**Primary Keywords:**
-- ${topic}
-- ${topic} explained
-- ${topic} tutorial
-- ${topic} for beginners
-- what is ${topic}
-
-**Secondary Keywords:**
-- ${topic} 2024
-- ${topic} guide
-- learn ${topic}
-- ${topic} basics
-- ${topic} overview
-
-**Hashtags:**
-#${topic.replace(/\s+/g, '')} #Tutorial #Explained #HowTo #Education
-
----
-
-*This script is designed for a ${format} format video with a target duration of ${duration}.*
+*Script designed for ${format} format, target duration: ${duration}.*
 *Generated by AI Video Storyline Generator - Demo Mode*`;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const { topic, format, duration, researchData } = await request.json();
-
-    if (!topic) {
-      return NextResponse.json(
-        { success: false, error: 'Topic is required' },
-        { status: 400 }
-      );
-    }
+    if (!topic) return NextResponse.json({ success: false, error: 'Topic is required' }, { status: 400 });
 
     try {
-      const zai = await ZAI.create();
+      const client = new Anthropic();
 
-      // Build context from research data
       let researchContext = '';
       if (researchData?.trending?.length > 0) {
-        researchContext = `\n\nTrending context:\n${researchData.trending.slice(0, 3).map((r: { name: string; snippet: string }) => 
+        researchContext = `\n\nTrending context:\n${researchData.trending.slice(0, 3).map((r: { name: string; snippet: string }) =>
           `- ${r.name}: ${r.snippet}`
         ).join('\n')}`;
       }
 
-      const systemPrompt = `You are an expert YouTube content creator and scriptwriter. Create engaging, well-structured video content that captures audience attention and drives engagement. Your scripts are professional, include timing cues, visual suggestions, and are optimized for YouTube's algorithm.`;
+      const message = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: `You are an expert YouTube content creator and scriptwriter. Create engaging, well-structured video content that captures audience attention and drives engagement. Your scripts are professional, include timing cues, visual suggestions, and are optimized for YouTube's algorithm.`,
+        messages: [{
+          role: 'user',
+          content: `Create a comprehensive YouTube video storyline/script for:
 
-      const userPrompt = `Create a comprehensive YouTube video storyline/script for:
-      
 Topic: ${topic}
 Format: ${format || 'documentary'}
 Target Duration: ${duration || '5-10 minutes'}
@@ -202,46 +103,27 @@ Please provide:
 7. **Thumbnail Concept** - Description for an eye-catching thumbnail
 8. **Tags/Keywords** - Relevant hashtags and keywords for YouTube SEO
 
-Format the response in clear Markdown with proper headings.`;
-
-      const completion = await zai.chat.completions.create({
-        messages: [
-          { role: 'assistant', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        thinking: { type: 'disabled' }
+Format the response in clear Markdown with proper headings.`
+        }]
       });
 
-      const storyline = completion.choices[0]?.message?.content;
+      const storyline = message.content[0].type === 'text' ? message.content[0].text : null;
 
-      return NextResponse.json({
-        success: true,
-        storyline,
-        topic,
-        format,
-        duration
-      });
+      return NextResponse.json({ success: true, storyline, topic, format, duration });
+
     } catch (apiError: unknown) {
-      // Check if it's a rate limit error
-      const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
-      if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
-        console.log('Rate limit hit for storyline, using demo data');
+      const msg = apiError instanceof Error ? apiError.message : String(apiError);
+      if (msg.includes('429') || msg.includes('rate limit') || msg.includes('overloaded')) {
         return NextResponse.json({
           success: true,
           storyline: getDemoStoryline(topic, format || 'documentary', duration || '5-10 minutes'),
-          topic,
-          format,
-          duration,
-          isDemo: true
+          topic, format, duration, isDemo: true
         });
       }
       throw apiError;
     }
   } catch (error) {
     console.error('Storyline generation error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to generate storyline' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Failed to generate storyline' }, { status: 500 });
   }
 }
