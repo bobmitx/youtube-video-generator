@@ -5,7 +5,11 @@ let _sql: ReturnType<typeof neon> | null = null
 function getSql(): ReturnType<typeof neon> {
   if (!_sql) {
     const url = process.env.NETLIFY_DATABASE_URL
-    if (!url) throw new Error('NETLIFY_DATABASE_URL is not set')
+      || process.env.DATABASE_URL
+      || (process.env.DB_HOST
+        ? `postgresql://${process.env.DB_USER}:${process.env.DB_PASS}@${process.env.DB_HOST}/${process.env.DB_NAME}?sslmode=require`
+        : null)
+    if (!url) throw new Error('No database connection configured')
     _sql = neon(url)
   }
   return _sql
