@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
         success: false,
         error: 'YouTube API not configured',
         demo: true,
-        message: 'To enable YouTube publishing, configure WETRAUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET',
+        message: 'To enable YouTube publishing, configure YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET',
       });
     }
 
