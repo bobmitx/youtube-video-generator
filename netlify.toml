@@ -1,5 +1,5 @@
 [build]
-  command = "npm install && npx prisma db push --skip-generate && npm run build"
+  command = "npm install && npx prisma generate && npx prisma db push && npm run build"
   publish = ".next"
 
 [[plugins]]
